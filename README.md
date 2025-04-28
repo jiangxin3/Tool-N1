@@ -9,7 +9,7 @@
 > - **We will release the code shortly in this repository, pending completion of NVIDIA's confidential review process.**
 > - **More results will be released soon - stay tuned!**
 
-We present Nemotron-Research-Tool-N1, a family of tool-using reasoning language models. We develop an R1-style RL training algorithm that employs a binary reward to supervise only the structural format and functional correctness of tool calls, without requiring explicit reasoning annotations. This approach enables models to generalize beyond strict token-level imitation and acquire reasoning capabilities directly from standard tool-calling data. We optimize the policy model using the GRPO algorithm. Experimental results on the BFCL and API-Bank benchmarks show that Nemotron-Research-Tool-N1-7B and Nemotron-Research-Tool-N1-14B, built upon Qwen2.5-7B/14B-Instruct, consistently outperform GPT-4o and other specialized open-source tool-calling models.
+We present Nemotron-Research-Tool-N1, a family of tool-using reasoning language models. We develop an R1-style RL training algorithm that employs a binary reward to supervise only the structural format and functional correctness of tool calls, without requiring explicit reasoning annotations. This approach enables models to generalize beyond strict token-level imitation and acquire reasoning capabilities directly from standard tool-calling data. We optimize the policy model using the GRPO. Experimental results on the BFCL and API-Bank benchmarks show that Nemotron-Research-Tool-N1-7B and Nemotron-Research-Tool-N1-14B, built upon Qwen2.5-7B/14B-Instruct, consistently outperform GPT-4o and other specialized open-source tool-calling models.
 
 <p align="center">
 <img src="./assets/overview.png" width="70%" alt="Overview" />
@@ -21,7 +21,7 @@ We present Nemotron-Research-Tool-N1, a family of tool-using reasoning language 
 <img src="./assets/thinking_template.png" width="70%" alt="thinking_template" />
 </p>
 
-- **Lightweight Reward Design:** Tool-N1 employs an R1-style binary reward that supervises only the structural validity and functional correctness of tool calls, without requiring detailed supervision of intermediate reasoning steps.
+- **Lightweight Reward Design:** Nemotron-Research-Tool-N1 employs an R1-style binary reward that supervises only the structural validity and functional correctness of tool calls, without requiring detailed supervision of intermediate reasoning steps.
 
 - **Reasoning Without Annotation:** The model is trained directly on existing tool-calling datasets without annotated reasoning trajectories. The model implicitly learns reasoning strategies through task success and format signal.
 
