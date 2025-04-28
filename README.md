@@ -50,3 +50,16 @@ We mainly perform evaluations on the BFCL and API Bank.
 **Training Data Composition:** (1) ToolACE data yields particularly strong improvements in the live setting. (2) Compared to models trained using SFT on the same data, the R1-style training consistently yields better performance. Specifically, the Tool-N1-7B model trained solely on xLAM data outperforms the xLAM-8B SFT model by 6.36%, and the Tool-N1-7B model trained solely on the ToolACE subset exceeds the ToolACE-8B SFT model by 1.62%, despite using only a subset of the data.
 
 <img src="./assets/data_composition.png" width="80%" alt="data_composition" />
+
+
+## Citation
+```md
+@misc{Tool-N1,
+  author       = {Shaokun Zhang, Yi Dong, Jieyu Zhang, Jan Kautz, Bryan Catanzaro, Andrew Tao,
+Qingyun Wu, Zhiding Yu, Guilin Liu},
+  title        = {Nemotron-Research-Tool-N1: Tool-Using Language Models with Reinforced Reasoning},
+  year         = {2025},
+  organization = {GitHub},
+  url          = {https://github.com/NVlabs/Tool-N1},
+}
+```
