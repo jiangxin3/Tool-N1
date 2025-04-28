@@ -2,7 +2,7 @@
 
 # ***Nemotron-Research-Tool-N1***: Tool-Using Language Models with Reinforced Reasoning
 
-[![Report](https://img.shields.io/badge/paper-A82F27?style=for-the-badge&logo=arxiv)](https://github.com/NVlabs/instant-ngp/blob/master/Tool-N1-report.pdf)
+[![Report](https://img.shields.io/badge/paper-A82F27?style=for-the-badge&logo=arxiv)](https://github.com/NVlabs/Tool-N1/blob/master/Tool-N1-report.pdf)
 </div>
 
 > - **We will release the code shortly in this repository, pending completion of NVIDIA's confidential review process.**
