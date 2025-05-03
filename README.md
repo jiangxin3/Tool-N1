@@ -2,7 +2,7 @@
 
 # ***Nemotron-Research-Tool-N1***: Tool-Using Language Models with Reinforced Reasoning
 
-[![Report](https://img.shields.io/badge/paper-A82F27?style=for-the-badge&logo=arxiv)](https://github.com/NVlabs/Tool-N1/blob/master/Tool-N1-report.pdf)
+[![Arxiv](https://img.shields.io/badge/paper-A82F27?style=for-the-badge&logo=arxiv)](https://arxiv.org/abs/2505.00024)
 </div>
 
 > [!IMPORTANT]
@@ -54,12 +54,11 @@ We mainly perform evaluations on the BFCL and API Bank.
 
 ## Citation
 ```md
-@misc{Tool-N1,
-  author       = {Shaokun Zhang, Yi Dong, Jieyu Zhang, Jan Kautz, Bryan Catanzaro, Andrew Tao,
-Qingyun Wu, Zhiding Yu, Guilin Liu},
-  title        = {Nemotron-Research-Tool-N1: Tool-Using Language Models with Reinforced Reasoning},
-  year         = {2025},
-  organization = {GitHub},
-  url          = {https://github.com/NVlabs/Tool-N1},
+@article{zhang2025Nemo,
+  title={Nemotron-Research-Tool-N1: Tool-Using Language Models with Reinforced Reasoning},
+  author={Shaokun Zhang, Yi Dong, Jieyu Zhang, Jan Kautz, Bryan Catanzaro, Andrew Tao, Qingyun Wu, Zhiding Yu, Guilin Liu},
+  journal={arXiv preprint arXiv:2505.00024},
+  year={2025},
+ url={https://arxiv.org/abs/2505.00024}, 
 }
 ```
