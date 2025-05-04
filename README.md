@@ -54,11 +54,10 @@ We mainly perform evaluations on the BFCL and API Bank.
 
 ## Citation
 ```md
-@article{zhang2025Nemo,
+@article{zhang2025nemotron,
   title={Nemotron-Research-Tool-N1: Tool-Using Language Models with Reinforced Reasoning},
-  author={Shaokun Zhang, Yi Dong, Jieyu Zhang, Jan Kautz, Bryan Catanzaro, Andrew Tao, Qingyun Wu, Zhiding Yu, Guilin Liu},
+  author={Zhang, Shaokun and Dong, Yi and Zhang, Jieyu and Kautz, Jan and Catanzaro, Bryan and Tao, Andrew and Wu, Qingyun and Yu, Zhiding and Liu, Guilin},
   journal={arXiv preprint arXiv:2505.00024},
-  year={2025},
- url={https://arxiv.org/abs/2505.00024}, 
+  year={2025}
 }
 ```
