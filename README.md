@@ -7,18 +7,19 @@
 
 > [!IMPORTANT]
 > - **We will release the code shortly in this repository, pending completion of NVIDIA's confidential review process.**
-> - **More results will be released soon - stay tuned!**
 
-We present Nemotron-Research-Tool-N1, a family of tool-using reasoning language models. We develop an R1-style RL training algorithm that employs a binary reward to supervise only the structural format and functional correctness of tool calls, without requiring explicit reasoning annotations. This approach enables models to generalize beyond strict token-level imitation and acquire reasoning capabilities directly from standard tool-calling data. We optimize the policy model using the GRPO. Experimental results on the BFCL and API-Bank benchmarks show that Nemotron-Research-Tool-N1-7B and Nemotron-Research-Tool-N1-14B, built upon Qwen2.5-7B/14B-Instruct, consistently outperform GPT-4o and other specialized open-source tool-calling models.
+We present Nemotron-Research-Tool-N1, a family of tool-using reasoning language models. These models are trained with an R1-style reinforcement learning algorithm that uses a binary reward to supervise only the structural format and functional correctness of tool calls, without requiring explicit reasoning annotations. This allows the models to generalize beyond token-level imitation and acquire reasoning capabilities directly from standard tool-calling data. The policy is optimized using GRPO.
+Experimental results on the BFCL, API-Bank, and AceBench benchmarks show that Tool-N1-7B and 14B, built on Qwen2.5-7B/14B-Instruct, significantly outperform GPT-4o and other leading open-source tool-calling models.
+Additionally, we conduct a systematic study of rule-based RL strategies. Using 5,518 distilled reasoning trajectories, we compare pure RL, supervised fine-tuning (SFT), and the commonly used SFT-then-RL pipeline. Our analysis reveals that the SFT-then-RL approach does not consistently pure RL.
 
 <p align="center">
-<img src="./assets/overview.png" width="70%" alt="Overview" />
+<img src="./assets/overview.png" width="100%" alt="Overview" />
 </p>
 
 ## Method
 
 <p align="center">
-<img src="./assets/thinking_template.png" width="70%" alt="thinking_template" />
+<img src="./assets/thinking_template.png" width="100%" alt="thinking_template" />
 </p>
 
 - **Lightweight Reward Design:** Nemotron-Research-Tool-N1 employs an R1-style binary reward that supervises only the structural validity and functional correctness of tool calls, without requiring detailed supervision of intermediate reasoning steps.
@@ -33,7 +34,7 @@ We present Nemotron-Research-Tool-N1, a family of tool-using reasoning language 
 
 <img src="./assets/exp_main.png" width="99%" alt="exp_main" />
 
-We mainly perform evaluations on the BFCL and API Bank.
+We mainly perform evaluations on the BFCL, APIBank and ACEBench.
 
 - RL offers a more effective paradigm for enhancing the tool-calling capabilities of LLMs compared to standard supervised fine-tuning.
 
@@ -41,7 +42,7 @@ We mainly perform evaluations on the BFCL and API Bank.
 
 - Qwen2.5-Instruct outperforms both LLaMA variants at the same model scale after training with the proposed method.
 
-## Reward Designing and Training Data Composition
+## Deep Analysis
 
 **RL Reward Designing:** Ablation study on reward granularity. We compare fine-grained reward designs, where partial credit is given for correct reasoning format and correct function names in function call stages, with binary rewards that assign full reward only when all conditions are fully satisfied. The results show that binary rewards consistently yield better performance, especially in the Live setting.
 
@@ -51,6 +52,12 @@ We mainly perform evaluations on the BFCL and API Bank.
 
 <img src="./assets/data_composition.png" width="65%" alt="data_composition" />
 
+
+**SFT or RL?**  (1) Although the combination of SFT on reasoning trajectories followed by RL is commonly regarded as the best practice in many domains, we do not observe improved performance under equal data budgets in the tool-calling setting.
+(2) Pure RL outperforms both Reason-SFT and No-Reason SFT under equal data budgets.
+(3) Interestingly, No-Reason SFT performs only slightly worse than Reason-SFT, suggesting that providing reasoning traces during SFT offers limited additional benefit.
+
+<img src="./assets/sft_or_rl.png" width="80%" alt="data_composition" />
 
 ## Citation
 ```md
