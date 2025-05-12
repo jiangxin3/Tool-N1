@@ -8,6 +8,8 @@
 > [!IMPORTANT]
 > - **We will release the code shortly in this repository, pending completion of NVIDIA's confidential review process.**
 
+> - **Please consider giving us a ⭐️ to stay updated on the upcoming code release!**
+
 We present Nemotron-Research-Tool-N1, a family of tool-using reasoning language models. These models are trained with an R1-style reinforcement learning algorithm that uses a binary reward to supervise only the structural format and functional correctness of tool calls, without requiring explicit reasoning annotations. This allows the models to generalize beyond token-level imitation and acquire reasoning capabilities directly from standard tool-calling data. The policy is optimized using GRPO.
 Experimental results on the BFCL, API-Bank, and AceBench benchmarks show that Tool-N1-7B and 14B, built on Qwen2.5-7B/14B-Instruct, significantly outperform GPT-4o and other leading open-source tool-calling models.
 Additionally, we conduct a systematic study of rule-based RL strategies. Using 5,518 distilled reasoning trajectories, we compare pure RL, supervised fine-tuning (SFT), and the commonly used SFT-then-RL pipeline. Our analysis reveals that the SFT-then-RL approach does not consistently pure RL.
