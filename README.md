@@ -1,6 +1,6 @@
 <div align="center">
 
-# ***Nemotron-Research-Tool-N1***: Tool-Using Language Models with Reinforced Reasoning
+# ***Nemotron-Research-Tool-N1***: Exploring Tool-Using Language Models with Reinforced Reasoning
 
 [![Arxiv](https://img.shields.io/badge/paper-A82F27?style=for-the-badge&logo=arxiv)](https://arxiv.org/abs/2505.00024)
 </div>
