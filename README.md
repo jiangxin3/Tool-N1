@@ -2,7 +2,7 @@
 
 # ***Nemotron-Research-Tool-N1***: Exploring Tool-Using Language Models with Reinforced Reasoning
 
-[![Arxiv](https://img.shields.io/badge/paper-A82F27?style=for-the-badge&logo=arxiv)](https://github.com/NVlabs/Tool-N1/blob/master/paper.pdf)
+[![Arxiv](https://img.shields.io/badge/paper-A82F27?style=for-the-badge&logo=arxiv)](https://arxiv.org/pdf/2505.00024)
 </div>
 
 > [!IMPORTANT]
