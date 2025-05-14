@@ -1,0 +1,11 @@
+### model
+model_name_or_path: path/to/model/Qwen2.5-7B-Instruct
+adapter_name_or_path: path/to/adapter/qwen-7b
+template: qwen
+finetuning_type: lora
+
+### export
+export_dir: path/to/export
+export_size: 2
+export_device: cpu
+export_legacy_format: false

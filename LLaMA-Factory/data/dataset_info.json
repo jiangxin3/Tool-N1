@@ -1,0 +1,11 @@
+{
+  "tool_sft": {
+    "file_name": "tool_sft.json",
+    "columns": {
+      "prompt": "instruction",
+      "query": "query",
+      "response": "output",
+      "system": "system_prompt"
+    }
+  }
+}
