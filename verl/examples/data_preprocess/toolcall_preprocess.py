@@ -23,7 +23,7 @@ import random
 
 qwen_tool_prompts ="""# Tool
 
-You are provided with function signatures within <tools></tools> XML tags:
+Here is a list of functions in JSON format that you can invoke:
 
 <tools>
 {tools}

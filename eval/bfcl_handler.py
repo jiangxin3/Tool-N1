@@ -63,14 +63,13 @@ class QwenReasonHandler(OSSHandler):
         You are an expert in composing functions. You are given a question and a set of possible functions. Based on the question, you will need to make one or more function/tool calls to achieve the purpose. If none of the function can be used, point it out. If the given question lacks the parameters required by the function, also point it out. You should only return the function call in tools call sections.
 
     # Tool
-
-    You are provided with function signatures within <tools></tools> XML tags:
+    Here is a list of functions in JSON format that you can invoke:
 
     <tools>
     {function_str}
     </tools>
 
-    For each function call, you MUST 
+    In each action step, you MUST: 
     1. think about the reasoning process in the mind before and enclosed your reasoning within <think> </think> XML tags.
     2. then return a json object with function names and arguments within <tool_call></tool_call> XML tags. i.e., <tool_call>[{{"name": <function-name>, "arguments": <args-json-object>}}, {{"name": <function-name2>, "arguments": <args-json-object2>}}, ...]</tool_call>
     3. remember complete 1 and 2 in one single reply.
