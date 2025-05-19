@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-pip install -e ".[torch,metrics]"
 
 export PROJ_NAME="qwen_sft"
 export OUTPUT_DIR="path/to/output/dir"
@@ -10,6 +9,8 @@ export LR=2.0e-5
 export EPOCH=20
 export BATCH_SIZE=4
 export G_ACC=8
+
+cd LLaMA-Factory
 
 FORCE_TORCHRUN=1 llamafactory-cli train examples/qwen_sft.yaml \
     learning_rate=$LR \

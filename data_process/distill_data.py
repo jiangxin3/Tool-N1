@@ -14,19 +14,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import argparse
 from openai import OpenAI
 import json, os
-import requests
-from tqdm import tqdm
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import random
-import datetime
 import re
-import ast
 from collections import Counter
-import random
 
 ds_client = OpenAI(api_key="", base_url="https://api.deepseek.com")
 

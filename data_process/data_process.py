@@ -34,7 +34,6 @@ DEFAULT_PROMPT = """You are an expert in composing functions. You are given a qu
 
 def _process_toolace(data, include_nocall=False):
 
-    # ---------- stage 1 ----------
     filtered = []
     for d in data:
         tools = _extract_functions_from_system(d["system"])
@@ -44,7 +43,6 @@ def _process_toolace(data, include_nocall=False):
         marker = "JSON format that you can invoke:\n"
         idx = d["system"].find(marker)
         item["system"] = d["system"][: idx + len(marker)]
-        # need_filter = False
         convs = []
         for c in d["conversations"]:
             if c["from"] == "gpt" and c["value"].startswith("[") and c["value"].endswith("]"):
@@ -56,7 +54,6 @@ def _process_toolace(data, include_nocall=False):
         item["conversations"] = convs
         filtered.append(item)
 
-    # ---------- stage 2 ----------
     results = []
     for d in filtered:
         cs, sys, tools = d["conversations"], d["system"], d["tools"]
@@ -126,8 +123,6 @@ def _preprocess_xlam(origin_data):
     return final_data
 
 def pre_process_data(data_names, include_nocall=False):
-
-    # 1. remove unusable data 2. add system prompt
 
     # toolace - single turn
     if data_names == "toolace_single_turn":
@@ -214,22 +209,17 @@ def main():
 
     data_sum = []
 
-    #-------------  multiple turn ------------- 
     multiple_turn_toolace = pre_process_data("toolace_multi_turn")
     print("toolace_multi_turn", len(multiple_turn_toolace))
 
     data_sum.extend(multiple_turn_toolace)
 
-    #------------- single turn ------------- 
     single_turn_toolace = pre_process_data("toolace_single_turn")
     print("toolace_single_turn", len(single_turn_toolace))
     data_sum.extend(single_turn_toolace)
     xlam = pre_process_data("xlam")
     print("xlam", len(xlam))
-
-    data_sum.extend(xlam)
-    
-    #-------------  save data ------------- 
+    data_sum.extend(xlam) 
     save_path = os.path.join(args.output_dir,"raw_data.json")
     with open(save_path, 'w', encoding='utf-8') as f:
         json.dump(data_sum, f, ensure_ascii=False, indent=4)
