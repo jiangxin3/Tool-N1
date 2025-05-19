@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 #!/usr/bin/env bash
 
 export N_GPUS=8
 export BASE_MODEL="path/to/model/Qwen2.5-7B-Instruct"
-export DATA_DIR="path/to/data/tool_call_data_verl"
+export DATA_DIR="verl/verl/data"
 export ROLLOUT_TP_SIZE=2
 export VLLM_ATTENTION_BACKEND="XFORMERS"
 
@@ -35,4 +34,4 @@ export TEMPERATURE=0.7
 export EPOCH=7
 export KL_COE=0.001
 
-bash examples/agent/qwen.sh
+bash verl/examples/agent/qwen.sh

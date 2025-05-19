@@ -12,11 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-"""
-Preprocess dataset for countdown task - given a target number and N numbers, generate equations to reach target
-"""
-
 import re
 import os
 from datasets import Dataset
@@ -83,7 +78,7 @@ def construct_prompt(dp):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--local_dir', default='path/to/processed/rl_data')
+    parser.add_argument('--local_dir', default='path/to/processed/rl_data') # path to save the processed data
     parser.add_argument('--hdfs_dir', default=None)
 
     args = parser.parse_args()

@@ -12,14 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import os
 import re
-import ast
 from collections import Counter
 import json
 import random
-from verl.utils.tool_utils import _parse_function_string, _extract_functions_from_system, _validate_function_format
 
 def validate_result(result, answer):
 
@@ -95,12 +91,8 @@ def compute_score_llama(solution_str, ground_truth, method='strict', json_score=
         answer = json.loads(answer)
 
     if do_print:
-        print("**************************************")
-        print("************solution_str************")
         print(solution_str)
-        print("************output_str************")
         print(output_string)
-        print("************is_match************")
         print(match)
         print(f"Extracted result: {result}")
         print(f"Solution string: {answer}")
@@ -150,7 +142,6 @@ def compute_score_llama(solution_str, ground_truth, method='strict', json_score=
                 print("wrong answer", -1)
             return 0
 
-############# qwen-normal ################
 def extract_solution_v0(tool_call_str):
     
     marker = "<|im_start|>assistant"
@@ -228,7 +219,6 @@ def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1
             print("wrong answer", -1)
         return 0
 
-############# qwen-lexico ################
 def extract_solution_v1(tool_call_str):
     
     marker = "<|im_start|>assistant"
@@ -267,16 +257,12 @@ def compute_score_v1(solution_str, ground_truth, method='strict', json_score=0.1
 
 
     if do_print:
-        print("************solution_str************")
         print(solution_str)
-        print(f"Extracted result: {result}")
-        print(f"Solution string: {answer}")
 
     # case 4.1
     if result is None: 
         if "<think>" in output_string and "</think>" in output_string:
             if do_print:
-                print("--------"*5+"\n\n")
                 print("result is None with reason:", 0)
             return 0
         else:
@@ -289,30 +275,25 @@ def compute_score_v1(solution_str, ground_truth, method='strict', json_score=0.1
             # case 1
             if  ("<think>" in output_string and "</think>" in output_string):
                 if do_print:
-                    print("--------"*5+"\n\n")
                     print("correct result with reason:", 1)
                 return 1.2
             # case 2
             else: 
                 if do_print:
-                    print("--------"*5+"\n\n")
                     print("correct result without reason:", 0.5)
                 return 1
         else:
             # case 4.2
             if  ("<think>" in output_string and "</think>" in output_string):
                 if do_print:
-                    print("--------"*5+"\n\n")
                     print("wrong result with reason:", -0.2)
                 return -0.2
             # case 3
             else:
                 if do_print:
-                    print("--------"*5+"\n\n")
                     print("wrong result without reason:", 0)
                 return 0
-
-############# qwen_wo_reason ################
+            
 def extract_solution_v2(tool_call_str):
     
     marker = "<|im_start|>assistant"
@@ -381,10 +362,6 @@ def compute_score_v2(solution_str, ground_truth, method='strict', json_score=0.1
             print("wrong answer", -1)
         return 0
 
-
-############# qwen_partial_reason ################
-
-
 def extract_solution_v3(tool_call_str):
     
     marker = "<|im_start|>assistant"
@@ -452,8 +429,6 @@ def compute_score_v3(solution_str, ground_truth, method='strict', json_score=0.1
             print("wrong answer", total)
         return total
 
-############# qwen_partial_funcname+reason ################
-
 def extract_solution_v4(tool_call_str):
     
     marker = "<|im_start|>assistant"
@@ -499,7 +474,6 @@ def compute_score_v4(solution_str, ground_truth, method='strict', json_score=0.1
     if "<think>" in output_string and "</think>" in output_string:
         total += 0.2
 
-    # result is ununsable
     if result is None:
         if do_print:
             print("--------"*5+"\n\n")
@@ -511,7 +485,6 @@ def compute_score_v4(solution_str, ground_truth, method='strict', json_score=0.1
             print("result wrong formate:", total)
         return total
 
-    # result is usable
     if validate_result(result, answer) == 2:
         total += 0.8
         if do_print:
