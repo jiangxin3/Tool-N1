@@ -8,108 +8,69 @@
 > [!IMPORTANT]
 > - **Please consider giving us a ⭐️ to stay updated on the upcoming code release!**
 
-We present Nemotron-Research-Tool-N1, a family of tool-using reasoning language models. These models are trained with an R1-style reinforcement learning algorithm that uses a binary reward to supervise only the structural format and functional correctness of tool calls, without requiring explicit reasoning annotations. This allows the models to generalize beyond token-level imitation and acquire reasoning capabilities directly from standard tool-calling data. The policy is optimized using GRPO.
-Experimental results on the BFCL, API-Bank, and AceBench benchmarks show that Tool-N1-7B and 14B, built on Qwen2.5-7B/14B-Instruct, significantly outperform GPT-4o and other leading open-source tool-calling models.
-Additionally, we conduct a systematic study of rule-based RL strategies. Using 5,518 distilled reasoning trajectories, we compare pure RL, supervised fine-tuning (SFT), and the commonly used SFT-then-RL pipeline. Our analysis reveals that the SFT-then-RL approach does not consistently pure RL.
-
+This is the official implementation of paper Nemotron-Research-Tool-N1: Exploring Tool-Using Language Models with Reinforced Reasoning, where we present Nemotron-Research-Tool-N1, a family of tool-using reasoning language models. These models are trained with an R1-style reinforcement learning algorithm that uses a binary reward to supervise only the structural format and functional correctness of tool calls, without requiring explicit reasoning annotations. This allows the models to generalize beyond token-level imitation and acquire reasoning capabilities directly from standard tool-calling data. The policy is optimized using GRPO.
 <p align="center">
 <img src="./assets/overview.png" width="100%" alt="Overview" />
 </p>
 
 ## How to Run
 
-### Data Process & Environment
+We provide preprocessed RL and SFT datasets in the following directories:
 
-The ```data_process``` folder contains the script for initial preprocessing of the Huggingface datasets. To run the script, use the following commands:
+- Reinforcement Learning (RL) data: ```verl/verl/data```
+
+- Supervised Fine-Tuning (SFT) data: ```LLaMA-Factory/data```
+
+### Environment Setup
+
+- **verl**
 
 ```
-cd data_process
-python data_process.py
-```
-
-Please specify the paths to the downloaded ToolACE and xLAM datasets in the script before execution.
-
-```
-# verl
 cd verl
-pip3 install verl[vllm]
+pip3 install -e .[vllm]
+```
 
-# LLaMA-Factory
+- **Llama-Factory**
+
+```
 cd LLaMA-Factory
-pip install -e ".[torch,metrics]"
+pip install -e ".[torch,metrics]" --no-build-isolation
 ```
 
-
-### RL Training 
-
-First ```cd verl``` in the begining.
-
-
-- **Convert Raw Data to Verl Data**
+### RL training 
 
 ```
-cd examples/data_preprocess
-python toolcall_preprocess.py
+# main script
+bash qwen_rl.sh
+# convert to huggingface model
+python verl_convert.py
 ```
 
-- **Start Training**
+### SFT (Lora) training 
 
 ```
-bash train_qwen.sh
+# main script
+bash qwen_sft.sh
+# lora model merge 
+bash llamafact_merge.sh
 ```
 
-- **Model Convert**
+### Data Process (Optional)
 
-```
-python model_convert.py
-```
-
-### Reasoning Data Distillition 
+- **Reasoning Data Distillition** 
 
 ```
 cd data_process
 python distill_data.py
 ```
 
-### SFT Training 
+- **Data processing**
 
-First ```cd LLaMA-Factory```.
+We provide scripts to process data into formats compatible with various libraries.
 
-- **Data Process**
-
-```
-python data_process.py
-```
-
-
-- **Model Training**
-
-```
-export PROJ_NAME="sft"
-export OUTPUT_DIR="saves/qwen-7b/sft"
-
-export MODEL_PATH="path/to/model/Qwen2.5-7B-Instruct"
-export LOG_DIR="path/to/logs/$PROJ_NAME.txt"
-export LR=2.0e-5
-export EPOCH=20
-export BATCH_SIZE=4
-export G_ACC=8
-
-FORCE_TORCHRUN=1 llamafactory-cli train examples/train_lora/qwen_tool_call50.yaml \
-    learning_rate=$LR \
-    num_train_epochs=$EPOCH \
-    per_device_train_batch_size=$BATCH_SIZE \
-    gradient_accumulation_steps=$G_ACC \
-    output_dir=$OUTPUT_DIR \
-    run_name=$PROJ_NAME \
-    model_name_or_path=$MODEL_PATH 2>&1 | tee -a "${LOG_DIR}"
-```
-
-- **Model Merge**
-
-```
-llamafactory-cli export examples/qwen_merge.yaml
-```
+1. Initial preprocessing: ```data_process/raw_data_process.py```
+2. Format conversion for Verl: ```verl/examples/verl_data_preprocess.py``` 
+3. Preprocessing for LLaMA-Factory usage: ```LLaMA-Factory/lam_data_process.py```
 
 ### Evaluation 
 
