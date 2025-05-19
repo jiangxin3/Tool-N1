@@ -46,7 +46,7 @@ bash qwen_rl.sh
 python verl_convert.py
 ```
 
-### SFT (Lora) training 
+### SFT Training (Lora)
 
 ```
 # main script
