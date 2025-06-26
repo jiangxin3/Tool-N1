@@ -186,7 +186,8 @@ def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1
 
     result, output_string = extract_solution_v0(solution_str)
 
-    do_print = random.randint(1, 64) == 1
+    #do_print = random.randint(1, 64) == 1
+    do_print = 1
 
     if isinstance(result, str):
         try:
