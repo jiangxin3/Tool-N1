@@ -145,23 +145,40 @@ def compute_score_llama(solution_str, ground_truth, method='strict', json_score=
             return 0
 
 def extract_solution_v0(tool_call_str):
-    
+    # 查找从 marker 开始的内容
     marker = "<|im_start|>assistant"
     index = tool_call_str.rfind(marker)
     if index != -1:
         tool_call_str = tool_call_str[index:]
-        
+
     output_string = tool_call_str
 
-    pattern = r'<tool_call>(.*?)</tool_call>'
-    matches = list(re.finditer(pattern, tool_call_str, flags=re.DOTALL))
-    if not matches:
+    match = re.search(r'<tool_call>([^{}]*(\{.*?\})[^{}]*)</tool_call>', tool_call_str, re.DOTALL)
+    
+    if not match:
         return None, output_string
-    last_content = matches[-1].group(1).strip()
+    
+    content = match.group(1).strip()
+
     try:
-        return json.loads(last_content),output_string
+        # 尝试解析为单个 JSON 对象或 JSON 数组
+        result = json.loads(content)
+        if isinstance(result, dict):
+            return [result], output_string
+        elif isinstance(result, list):
+            return result, output_string
     except json.JSONDecodeError:
-        return None, output_string
+        # 如果是多个独立 JSON 对象，手动分割
+        results = []
+        for obj in re.finditer(r'\{(?:[^{}]|(?:\{[^{}]*\})*)*\}', content):
+            try:
+                results.append(json.loads(obj.group()))
+            except:
+                continue
+        if results:
+            return results, output_string
+    
+    return None, output_string
 
 def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1, format_score = 0.3,  name_score = 0.6, score=1):
 
