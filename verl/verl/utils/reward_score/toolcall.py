@@ -220,7 +220,7 @@ def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1
         if do_print:
             print("--------"*5+"\n\n")
             print("result is None:", -1)
-        return 0
+        return -1
     
     if not validate_format(result):
         if do_print:
