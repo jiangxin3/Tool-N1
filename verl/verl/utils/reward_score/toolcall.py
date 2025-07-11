@@ -186,8 +186,8 @@ def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1
 
     result, output_string = extract_solution_v0(solution_str)
 
-    #do_print = random.randint(1, 64) == 1
-    do_print = 1
+    do_print = random.randint(1, 64) == 1
+    #do_print = 1
 
     if isinstance(result, str):
         try:
@@ -214,7 +214,7 @@ def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1
             if do_print:
                 print("--------"*5+"\n\n")
                 print("not thinking:", -1)
-            return 0
+            return -1
 
     if result is None:
         if do_print:
@@ -226,7 +226,7 @@ def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1
         if do_print:
             print("--------"*5+"\n\n")
             print("result wrong formate:",-1)
-        return 0
+        return -0.2
     
     if validate_result(result, answer) == 2:
         if do_print:
@@ -237,7 +237,7 @@ def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1
         if do_print:
             print("--------"*5+"\n\n")
             print("wrong answer", -1)
-        return 0
+        return -1
 
 def extract_solution_v1(tool_call_str):
     
