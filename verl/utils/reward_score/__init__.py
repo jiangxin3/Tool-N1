@@ -59,6 +59,10 @@ def default_compute_score(
         from . import math_dapo
 
         res = math_dapo.compute_score(solution_str, ground_truth)
+    elif  data_source in ['toolcall']:
+        from . import toolcall
+        if "prompt_type" not in extra_info.keys():
+            res = toolcall.compute_score_v0(solution_str, ground_truth)
     elif data_source in [
         "numina_aops_forum",
         "numina_synthetic_math",
