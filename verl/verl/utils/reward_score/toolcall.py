@@ -98,8 +98,24 @@ def extract_solution_v0(tool_call_str):
 
 def acc_reward(solution_str: str, ground_truth: str) -> float:
 
-    answer = json.loads(ground_truth)
+    # 1. 尝试解析 ground_truth，增加健壮性
+    try:
+        answer = json.loads(ground_truth)
+        if answer is None:
+            answer = []
+    except (json.JSONDecodeError, TypeError):
+        # 如果 ground_truth 本身有问题，也记录下来
+        print("!!!!!!!!!!!! WARNING: FAILED TO PARSE GROUND TRUTH !!!!!!!!!!!!")
+        print(f"Ground Truth String: {ground_truth}")
+        answer = []
+
     result, output_string = extract_solution_v0(solution_str)
+    
+    extraction_failed = result is None
+    if extraction_failed:
+        print("!!!!!!!!!!!! WARNING: FAILED TO EXTRACT TOOL CALL !!!!!!!!!!!!")
+        print(f"Original solution_str:\n---\n{solution_str}\n---")
+        result = []  # 设置为安全的默认值以便后续代码运行 
 
     if isinstance(result, str):
         try:
