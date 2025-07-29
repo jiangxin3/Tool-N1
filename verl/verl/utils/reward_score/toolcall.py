@@ -110,7 +110,7 @@ def acc_reward(solution_str: str, ground_truth: str) -> float:
         answer = []
 
     result, output_string = extract_solution_v0(solution_str)
-    
+
     extraction_failed = result is None
     if extraction_failed:
         print("!!!!!!!!!!!! WARNING: FAILED TO EXTRACT TOOL CALL !!!!!!!!!!!!")
@@ -143,20 +143,43 @@ def acc_reward(solution_str: str, ground_truth: str) -> float:
         if do_print:
             print("--------"*5+"\n\n")
             print("get full core:", 1)
-    return 1
+        return 1
 
 def format_reward(predict_str: str) -> float:
-    pattern = re.compile(r".*<think>.*</think>.*<tool_call>([^{}]*(\{.*?\})[^{}]*)</tool_call>.*", re.DOTALL)
-    match_result = re.fullmatch(pattern, predict_str)
-    return 1 if match_result else 0
+    """
+    检查模型输出是否严格遵循 <think>...</think><tool_call>...</tool_call> 的格式
+    返回值:
+        1.0: 严格遵循格式
+        0.0: 不严格遵循格式
+    """
+    try:
+        # 一次性获取所有关键位置
+        start_think_pos = predict_str.find("<think>")
+        end_think_pos = predict_str.find("</think>")
+        start_tool_pos = predict_str.find("<tool_call>")
+        end_tool_pos = predict_str.find("</tool_call>")
 
-def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1, format_score = 0.1,  name_score = 0.6, score=1):
+        # 检查点1: 所有标签必须都存在 (find不返回-1)
+        if -1 in (start_think_pos, end_think_pos, start_tool_pos, end_tool_pos):
+            return 0.0
+
+        # 检查点2: 位置必须严格递增
+        if start_think_pos < end_think_pos < start_tool_pos < end_tool_pos:
+            return 1.0
+        else:
+            return 0.0
+            
+    except AttributeError:
+        # 捕获 predict_str 不是字符串的异常
+        return 0.0
+
+def compute_score_v0(solution_str, ground_truth, method='strict', json_score=0.1, format_factor = 0.1,  name_score = 0.6, score=1):
 
     format_score = format_reward(solution_str)
 
     acc_score = acc_reward(solution_str, ground_truth)
 
-    score = (1.0 - format_score) * acc_score + format_score * format_score
+    score = (1.0 - format_factor) * acc_score + format_factor * format_score
 
     print("format_score: ",format_score, "acc_score: ", acc_score, "final_score: ", score)
 
