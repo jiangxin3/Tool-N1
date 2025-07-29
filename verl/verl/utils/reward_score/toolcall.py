@@ -144,6 +144,11 @@ def acc_reward(solution_str: str, ground_truth: str) -> float:
             print("--------"*5+"\n\n")
             print("get full core:", 1)
         return 1
+    else:
+        if do_print:
+            print("--------"*5+"\n\n")
+            print("get partial core:", 0)
+        return 0
 
 def format_reward(predict_str: str) -> float:
     """
