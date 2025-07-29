@@ -17,7 +17,7 @@
 import re
 from collections import Counter
 import json
-#import random
+import random
 
 def validate_result(result, answer):
 
@@ -115,8 +115,8 @@ def acc_reward(solution_str: str, ground_truth: str) -> float:
     if isinstance(answer, str):
         answer = json.loads(answer)
 
-    #do_print = random.randint(1, 64) == 1
-    do_print = 1
+    do_print = random.randint(1, 64) == 1
+    #do_print = 1
 
     if do_print:
         print("************solution_str************")
