@@ -31,30 +31,52 @@ def validate_result(result, answer):
             return [normalize_value(item) for item in value]
         return value
 
+    # --- 开始修改 ---
 
-    if len(result) == 0 or len(answer) == 0:
-        if len(result) == len(answer):
-            return 2
-        else:
-            return 0
-    else:
-        try:
-            counter1_full = Counter((item["name"], json.dumps(normalize_value(item["arguments"]), sort_keys=True)) 
-                                    for item in result)
-            counter2_full = Counter((item["name"], json.dumps(normalize_value(item["arguments"]), sort_keys=True)) 
-                                    for item in answer)
-        except TypeError:
-            return 0
-        if counter1_full == counter2_full:
-            return 2
-        
-        counter1_name = Counter(item["name"] for item in result)
-        counter2_name = Counter(item["name"] for item in answer)
+    # 1. 对输入进行健壮性检查，防止传入 None
+    if result is None: result = []
+    if answer is None: answer = []
 
-        if counter1_name == counter2_name:
-            return 1
-        
+    # 2. 过滤掉不规范的工具调用项
+    #    一个有效的工具调用 item 必须是字典，并且同时包含 'name' 和 'arguments' 键。
+    sanitized_result = [
+        item for item in result 
+        if isinstance(item, dict) and 'name' in item and 'arguments' in item
+    ]
+    sanitized_answer = [
+        item for item in answer 
+        if isinstance(item, dict) and 'name' in item and 'arguments' in item
+    ]
+
+    # 如果过滤后任意一个列表为空，进行空列表的比较逻辑
+    if not sanitized_result or not sanitized_answer:
+        # 如果两者都为空，则认为完全匹配
+        return 2 if len(sanitized_result) == len(sanitized_answer) else 0
+
+    # 3. 使用过滤后的、干净的数据来构建 Counter
+    #    现在可以安全地访问 item['name'] 和 item['arguments']
+    try:
+        counter1_full = Counter((item["name"], json.dumps(normalize_value(item["arguments"]), sort_keys=True)) 
+                                for item in sanitized_result)
+        counter2_full = Counter((item["name"], json.dumps(normalize_value(item["arguments"]), sort_keys=True)) 
+                                for item in sanitized_answer)
+    except (TypeError, KeyError) as e:
+        # 增加一层额外的保护，尽管可能性很小
+        print(f"!!! Unexpected error during Counter creation: {e}")
         return 0
+        
+    # 完全匹配：函数名和参数都一致
+    if counter1_full == counter2_full:
+        return 2
+    
+    # 部分匹配：只比较函数名
+    counter1_name = Counter(item["name"] for item in sanitized_result)
+    counter2_name = Counter(item["name"] for item in sanitized_answer)
+
+    if counter1_name == counter2_name:
+        return 1
+    
+    return 0
 
 def extract_solution_v0(tool_call_str):
     # 查找从 marker 开始的内容
