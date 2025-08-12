@@ -44,7 +44,11 @@ def default_compute_score(
         from . import gsm8k
 
         res = gsm8k.compute_score(solution_str, ground_truth)
-    elif data_source in ["lighteval/MATH", "DigitalLearningGmbH/MATH-lighteval"]:
+    elif data_source in ['toolcall']:
+        from . import toolcall
+        if "prompt_type" not in extra_info.keys():
+            res = toolcall.compute_score_v0(solution_str, ground_truth)
+    elif data_source in ["lighteval/MATH", "DigitalLearningGmbH/MATH-lighteval", "HuggingFaceH4/MATH-500"]:
         from . import math
 
         res = math.compute_score(solution_str, ground_truth)
@@ -59,10 +63,6 @@ def default_compute_score(
         from . import math_dapo
 
         res = math_dapo.compute_score(solution_str, ground_truth)
-    elif  data_source in ['toolcall']:
-        from . import toolcall
-        if "prompt_type" not in extra_info.keys():
-            res = toolcall.compute_score_v0(solution_str, ground_truth)
     elif data_source in [
         "numina_aops_forum",
         "numina_synthetic_math",
