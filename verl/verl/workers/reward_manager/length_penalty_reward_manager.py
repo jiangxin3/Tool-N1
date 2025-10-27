@@ -157,7 +157,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                     reward -= scaled_penalty
                     reward_extra_info["length_penalty"].append(scaled_penalty)
 
-                logger.info(f"Reward calculated. Total: {reward}, Score: {score}, Length Penalty: {-scaled_penalty}")
+                print(f"Reward calculated. Total: {reward}, Score: {score}, Length Penalty: {-scaled_penalty}")
                 reward_tensor[i, int(valid_response_length) - 1] = reward
                 reward_extra_info["original_score"].append(score)
                 reward_extra_info["response_length"].append(length)
