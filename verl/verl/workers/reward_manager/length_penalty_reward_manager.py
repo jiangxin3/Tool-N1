@@ -15,11 +15,15 @@
 from collections import defaultdict
 import torch
 import numpy as np
+import logging
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
+
+logger = logging.getLogger(__name__)
+
 
 @register("length_penalty")
 class LengthPenaltyRewardManager(AbstractRewardManager):
@@ -54,15 +58,15 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
         reward_extra_info = defaultdict(list)
         
-        # Group responses by prompt
+        # Group responses by prompt uid
         prompt_groups = defaultdict(list)
-        for i in range(len(data)):
-            prompt_ids = data[i].batch["prompts"]
-            prompt_str = self.tokenizer.decode(prompt_ids, skip_special_tokens=True)
-            prompt_groups[prompt_str].append(i)
+        uids = data.non_tensor_batch.get("uid", list(range(len(data))))
+        assert len(uids) == len(data), f"UID list length ({len(uids)}) does not match batch size ({len(data)})."
+        for i, uid in enumerate(uids):
+            prompt_groups[uid].append(i)
 
         # Calculate length penalty for each group
-        for prompt_str, indices in prompt_groups.items():
+        for _, indices in prompt_groups.items():
             response_lengths = []
             for i in indices:
                 response_ids = data[i].batch["responses"]
@@ -99,52 +103,61 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                 
                 score = result if isinstance(result, float) else result.get("score", 0.0)
                 reward = score
+                scaled_penalty = 0.0
 
-                # Apply piecewise length-based reward
-                if self.length_penalty_config and self.length_penalty_config.get("enable", False):
-                    # Implements a trapezoidal reward function based on the response length relative to the median length.
-                    # This is configured via `length_penalty_config` with fields like:
-                    # - `length_reward_scale`: A scaling factor for the calculated length reward component.
-                    # - `max_bonus`: The maximum reward value at the peak of the trapezoid (before scaling).
-                    # - `peak_ratio`: The radius of the flat top, as a fraction of the median length (e.g., 0.1 for +/- 10%).
-                    # - `outer_ratio`: The radius of the base, as a fraction of the median length (e.g., 0.5 for +/- 50%).
+                # Apply piecewise length-based penalty
+                if self.length_penalty_config and self.length_penalty_config.enable:
+                    # This implements a true penalty system using an "inverted trapezoid" function.
+                    # A penalty is calculated based on the response length (L) relative to the median length (M).
+                    #
+                    # Let p = peak_ratio, o = outer_ratio. The penalty formula is:
+                    #
+                    # Penalty =
+                    #   - 0, if M*(1-p) <= L <= M*(1+p) (zero penalty zone)
+                    #   - linear increase from 0 to max_penalty, if M*(1-o) <= L < M*(1-p)
+                    #   - linear increase from 0 to max_penalty, if M*(1+p) < L <= M*(1+o)
+                    #   - max_penalty, if L < M*(1-o) or L > M*(1+o)
+                    #
+                    # The final reward is `reward = score - (Penalty * penalty_scale)`.
                     
-                    length_reward_scale = self.length_penalty_config.get("length_reward_scale", 1.0)
-                    max_bonus = self.length_penalty_config.get("max_bonus", 1.0)
-                    peak_ratio = self.length_penalty_config.get("peak_ratio", 0.3)
-                    outer_ratio = self.length_penalty_config.get("outer_ratio", 0.5)
+                    # Configuration for the penalty function
+                    penalty_scale = getattr(self.length_penalty_config, "penalty_scale", 1.0)
+                    max_penalty = getattr(self.length_penalty_config, "max_penalty", 1.0)
+                    peak_ratio = getattr(self.length_penalty_config, "peak_ratio", 0.3)
+                    outer_ratio = getattr(self.length_penalty_config, "outer_ratio", 0.5)
 
                     if outer_ratio <= peak_ratio:
                         raise ValueError("outer_ratio must be greater than peak_ratio in length_penalty_config")
 
-                    length_reward_component = 0.0
-                    # Only apply length reward if median_length is positive to avoid division by zero.
+                    penalty_component = 0.0
+                    # Only apply penalty if median_length is positive to avoid division by zero.
                     if median_length > 0:
-                        # Define the points of the trapezoid function using ratios of the median length
+                        # Define the points of the inverted trapezoid function
                         linear_start = median_length * (1 - outer_ratio)
                         peak_start = median_length * (1 - peak_ratio)
                         peak_end = median_length * (1 + peak_ratio)
                         linear_end = median_length * (1 + outer_ratio)
                         
-                        if length >= peak_start and length <= peak_end:
-                            # Inside the peak interval: maximum bonus
-                            length_reward_component = max_bonus
+                        if length < linear_start or length > linear_end:
+                            # Outside the outer bounds: maximum penalty
+                            penalty_component = max_penalty
                         elif length >= linear_start and length < peak_start:
-                            # On the ascending slope of the trapezoid
+                            # On the ascending slope of the penalty (for short responses)
                             denominator = peak_start - linear_start
                             if denominator > 0:
-                                length_reward_component = max_bonus * (length - linear_start) / denominator
+                                penalty_component = max_penalty * (peak_start - length) / denominator
                         elif length > peak_end and length <= linear_end:
-                            # On the descending slope of the trapezoid
+                            # On the ascending slope of the penalty (for long responses)
                             denominator = linear_end - peak_end
                             if denominator > 0:
-                                length_reward_component = max_bonus * (linear_end - length) / denominator
-                        # Outside the `outer_ratio`, the length_reward_component remains 0.
+                                penalty_component = max_penalty * (length - peak_end) / denominator
+                        # Inside the peak_start to peak_end range, penalty_component remains 0.
 
-                    scaled_length_reward = length_reward_component * length_reward_scale
-                    reward += scaled_length_reward
-                    reward_extra_info["length_reward"].append(scaled_length_reward)
+                    scaled_penalty = penalty_component * penalty_scale
+                    reward -= scaled_penalty
+                    reward_extra_info["length_penalty"].append(scaled_penalty)
 
+                logger.info(f"Reward calculated. Total: {reward}, Score: {score}, Length Penalty: {-scaled_penalty}")
                 reward_tensor[i, int(valid_response_length) - 1] = reward
                 reward_extra_info["original_score"].append(score)
                 reward_extra_info["response_length"].append(length)
