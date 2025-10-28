@@ -109,7 +109,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                 score = result if isinstance(result, float) else result.get("score", 0.0)
                 reward = score
                 scaled_penalty = 0.0
-
+                print(f"[PENALTY DEBUG] length_penalty_config {self.length_penalty_config}")
                 # Apply piecewise length-based penalty
                 if self.length_penalty_config and self.length_penalty_config.enable:
                     print(f"[PENALTY DEBUG] Length penalty calculation is ENABLED.")
