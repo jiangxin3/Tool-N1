@@ -144,6 +144,7 @@ def load_reward_manager(
         num_examine=num_examine,
         compute_score=final_compute_score,
         reward_fn_key=config.data.reward_fn_key,
+        length_penalty_config=config.reward_model.reward_manager_config,
         **reward_kwargs,
     )
 
