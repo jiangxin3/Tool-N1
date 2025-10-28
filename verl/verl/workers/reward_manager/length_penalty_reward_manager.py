@@ -69,8 +69,8 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         for _, indices in prompt_groups.items():
             response_lengths = []
             for i in indices:
-                response_ids = data[i].batch["responses"]
-                valid_response_length = data[i].batch["attention_mask"][response_ids.shape[-1]:].sum()
+                prompt_length = data[i].batch["prompts"].shape[-1]
+                valid_response_length = data[i].batch["attention_mask"][prompt_length:].sum()
                 response_lengths.append(valid_response_length.item())
             
             median_length = np.median(response_lengths)
