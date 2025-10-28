@@ -107,6 +107,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
 
                 # Apply piecewise length-based penalty
                 if self.length_penalty_config and self.length_penalty_config.enable:
+                    print(f"[PENALTY DEBUG] Length penalty calculation is ENABLED.")
                     # This implements a true penalty system using an "inverted trapezoid" function.
                     # A penalty is calculated based on the response length (L) relative to the median length (M).
                     #
@@ -125,6 +126,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                     max_penalty = getattr(self.length_penalty_config, "max_penalty", 1.0)
                     peak_ratio = getattr(self.length_penalty_config, "peak_ratio", 0.3)
                     outer_ratio = getattr(self.length_penalty_config, "outer_ratio", 0.5)
+                    print(f"[PENALTY DEBUG] Config: penalty_scale={penalty_scale}, max_penalty={max_penalty}, peak_ratio={peak_ratio}, outer_ratio={outer_ratio}")
 
                     if outer_ratio <= peak_ratio:
                         raise ValueError("outer_ratio must be greater than peak_ratio in length_penalty_config")
@@ -138,6 +140,10 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                         peak_end = median_length * (1 + peak_ratio)
                         linear_end = median_length * (1 + outer_ratio)
                         
+                        print(f"[PENALTY DEBUG] length={length}, median_length={median_length}")
+                        print(f"[PENALTY DEBUG] No-penalty zone: [{peak_start:.2f}, {peak_end:.2f}]")
+                        print(f"[PENALTY DEBUG] Linear penalty zone: [{linear_start:.2f}, {peak_start:.2f}) U ({peak_end:.2f}, {linear_end:.2f}]")
+
                         if length < linear_start or length > linear_end:
                             # Outside the outer bounds: maximum penalty
                             penalty_component = max_penalty
@@ -152,6 +158,8 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                             if denominator > 0:
                                 penalty_component = max_penalty * (length - peak_end) / denominator
                         # Inside the peak_start to peak_end range, penalty_component remains 0.
+                        
+                        print(f"[PENALTY DEBUG] Calculated penalty_component: {penalty_component:.4f}")
 
                     scaled_penalty = penalty_component * penalty_scale
                     reward -= scaled_penalty
