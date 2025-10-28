@@ -64,9 +64,12 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         assert len(uids) == len(data), f"UID list length ({len(uids)}) does not match batch size ({len(data)})."
         for i, uid in enumerate(uids):
             prompt_groups[uid].append(i)
+        
+        print(f"[PENALTY DEBUG] Total groups identified: {len(prompt_groups)}")
 
         # Calculate length penalty for each group
         for _, indices in prompt_groups.items():
+            print(f"[PENALTY DEBUG] Processing group with indices {indices}")
             response_lengths = []
             for i in indices:
                 prompt_length = data[i].batch["prompts"].shape[-1]
@@ -74,6 +77,8 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                 response_lengths.append(valid_response_length.item())
             
             median_length = np.median(response_lengths)
+
+            print(f"[PENALTY DEBUG] Processing group with indices {indices}, median response length: {median_length}")
             
             for i, length in zip(indices, response_lengths):
                 data_item = data[i]
