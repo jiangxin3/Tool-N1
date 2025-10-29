@@ -156,7 +156,8 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                             # On the ascending slope of the penalty (for short responses)
                             denominator = peak_start - linear_start
                             if denominator > 0:
-                                penalty_component = max_penalty * (peak_start - length) / denominator
+                                #penalty_component = max_penalty * (peak_start - length) / denominator
+                                penalty_component = 0.0
                         elif length > peak_end and length <= linear_end:
                             # On the ascending slope of the penalty (for long responses)
                             denominator = linear_end - peak_end
