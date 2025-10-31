@@ -52,7 +52,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         self.openai_api_key = getattr(self.length_penalty_config, "api_key", None)
         self.openai_model_name = getattr(self.length_penalty_config, "model_name", "deepseek-v3")
         self.openai_reward_coefficient = getattr(self.length_penalty_config, "reward_coefficient", 1.0)
-        self.openai_api_endpoint = getattr(self.length_penalty_config, "api_endpoint", "https://qianfan.baidubce.com/v2")
+        self.openai_api_endpoint = getattr(self.length_penalty_config, "api_endpoint", "https://qianfan.baidubce.com/v2/chat/completions")
         self.openai_system_prompt = '''
 # 角色
 你将扮演一位资深的“LLM 输出质量审查员”。你的核心专长是分析大型语言模型在执行任务时的内部思考链（`<think>` 标签内的内容）与其最终执行的动作（`<tool_call>` 标签内的内容）之间的逻辑一致性。
