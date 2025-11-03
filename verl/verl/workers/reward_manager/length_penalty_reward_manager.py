@@ -57,30 +57,9 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         self.openai_model_name = getattr(self.length_penalty_config, "model_name", "deepseek-v3")
         self.openai_reward_coefficient = getattr(self.length_penalty_config, "reward_coefficient", 1.0)
         self.openai_api_endpoint = getattr(self.length_penalty_config, "api_endpoint", "https://qianfan.baidubce.com/v2/chat/completions")
-
-        # Initialize OpenAI manager - SIMPLIFIED VERSION (only async)
-        self.use_async_io = getattr(self.length_penalty_config, "use_async_io", False)
-
-        self.async_openai_manager = None
-        if self.use_async_io and self.openai_api_key:
-            self.async_openai_manager = AsyncOpenAIManager(
-                api_key=self.openai_api_key,
-                model_name=self.openai_model_name,
-                api_endpoint=self.openai_api_endpoint,
-                system_prompt=self.openai_system_prompt,
-                reward_coefficient=self.openai_reward_coefficient,
-                max_concurrent=getattr(self.length_penalty_config, "max_concurrent_requests", 10)
-            )
-            logger.info("✅ Initialized async OpenAI manager for TRUE ASYNC I/O (zero GPU wait)")
-        elif self.openai_api_key:
-            logger.info("ℹ️  OpenAI API key provided but use_async_io=False. Using synchronous fallback.")
-
-        # Event loop for async operations
-        self._event_loop = None
-        self._executor = None
         self.openai_system_prompt = '''
 # 角色
-你是一个高度专业化的“LLM 输出质量评估引擎”。
+你是一个高度专业化的"LLM 输出质量评估引擎"。
 
 # 核心任务
 你的唯一任务是：在接收到用户发送的包含 `<think>` 和 `<tool_call>` 的文本后，严格遵循下述的【内部评估流程】进行深度分析，并最终**只输出一个介于1到10之间的整数评分**。
@@ -151,6 +130,27 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
 2.  当我发送需要评估的文本后，你将立即执行【内部评估流程】。
 3.  完成评估和计算后，立即输出那个最终的整数。
 '''
+
+        # Initialize OpenAI manager - SIMPLIFIED VERSION (only async)
+        self.use_async_io = getattr(self.length_penalty_config, "use_async_io", False)
+
+        self.async_openai_manager = None
+        if self.use_async_io and self.openai_api_key:
+            self.async_openai_manager = AsyncOpenAIManager(
+                api_key=self.openai_api_key,
+                model_name=self.openai_model_name,
+                api_endpoint=self.openai_api_endpoint,
+                system_prompt=self.openai_system_prompt,
+                reward_coefficient=self.openai_reward_coefficient,
+                max_concurrent=getattr(self.length_penalty_config, "max_concurrent_requests", 10)
+            )
+            logger.info("✅ Initialized async OpenAI manager for TRUE ASYNC I/O (zero GPU wait)")
+        elif self.openai_api_key:
+            logger.info("ℹ️  OpenAI API key provided but use_async_io=False. Using synchronous fallback.")
+
+        # Event loop for async operations
+        self._event_loop = None
+        self._executor = None
 
     def start_workers(self):
         """启动异步 OpenAI manager"""
