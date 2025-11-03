@@ -18,6 +18,7 @@ import numpy as np
 import logging
 import requests # Added for OpenAI API calls
 import re # Added for regex parsing
+import concurrent.futures # Added for concurrent API calls
 
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
@@ -125,7 +126,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
 [此处必须且只能输出一个1到10的整数，该分数是你综合以上所有分析后得出的最终结论]
 '''
 
-    def _get_openai_quality_reward(self, response_str: str, response_format_reward: float) -> float:
+    def _get_single_openai_quality_reward(self, response_str: str, response_format_reward: float) -> float:
         if response_format_reward == 0:
             return 0.0
 
@@ -169,6 +170,31 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
             logger.error(f"Error parsing OpenAI API response: {e}\nResponse: {response_json}")
             return 0.0
 
+    def _get_batched_openai_quality_rewards(self, responses_to_evaluate: list[tuple[str, float]]) -> list[float]:
+        if not self.openai_api_key:
+            logger.warning("OpenAI API key not provided. Skipping OpenAI quality evaluation.")
+            return [0.0] * len(responses_to_evaluate)
+
+        max_workers = 5 
+        scores = [0.0] * len(responses_to_evaluate)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_index = {
+                executor.submit(self._get_single_openai_quality_reward, resp_str, resp_format_reward): i
+                for i, (resp_str, resp_format_reward) in enumerate(responses_to_evaluate)
+            }
+
+            for future in concurrent.futures.as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    score = future.result()
+                    scores[index] = score
+                except Exception as exc:
+                    logger.error(f"OpenAI quality evaluation generated an exception for response at index {index}: {exc}")
+                    scores[index] = 0.0
+
+        return scores
+
     def __call__(self, data: DataProto, return_dict: bool = False):
         if "rm_scores" in data.batch.keys():
             if return_dict:
@@ -193,20 +219,12 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         # Calculate length penalty for each group
         for _, indices in prompt_groups.items():
             print(f"[PENALTY DEBUG] Processing group with indices {indices}")
-            response_lengths = []
+            
+            # Store data needed for each item in the group
+            group_data = []
             for i in indices:
-                prompt_length = data[i].batch["prompts"].shape[-1]
-                valid_response_length = data[i].batch["attention_mask"][prompt_length:].sum()
-                response_lengths.append(valid_response_length.item())
-            
-            median_length = np.median(response_lengths)
-
-            print(f"[PENALTY DEBUG] Processing group with indices {indices}, median response length: {median_length}")
-            
-            for i, length in zip(indices, response_lengths):
                 data_item = data[i]
                 
-                # Calculate original score
                 prompt_ids = data_item.batch["prompts"]
                 prompt_length = prompt_ids.shape[-1]
                 valid_prompt_length = data_item.batch["attention_mask"][:prompt_length].sum()
@@ -214,46 +232,62 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                 response_ids = data_item.batch["responses"]
                 valid_response_length = data_item.batch["attention_mask"][prompt_length:].sum()
                 valid_response_ids = response_ids[:valid_response_length]
+                
                 prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
                 response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
                 eos_token = self.tokenizer.eos_token
                 if response_str.endswith(eos_token):
                     response_str = response_str[: -len(eos_token)]
+                
                 ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
                 data_source = data_item.non_tensor_batch[self.reward_fn_key]
                 extra_info = data_item.non_tensor_batch.get("extra_info", {})
+                
                 result = self.compute_score(
                     data_source=data_source,
                     solution_str=response_str,
                     ground_truth=ground_truth,
                     extra_info=extra_info,
                 )
-                
                 score = result if isinstance(result, float) else result.get("score", 0.0)
+                
+                group_data.append({
+                    "original_index": i,
+                    "response_str": response_str,
+                    "original_score": score,
+                    "valid_response_length": valid_response_length.item(),
+                })
+            
+            response_lengths = [item["valid_response_length"] for item in group_data]
+            median_length = np.median(response_lengths)
+
+            print(f"[PENALTY DEBUG] Processing group with indices {indices}, median response length: {median_length}")
+            
+            # Prepare for batched OpenAI calls
+            responses_to_evaluate_for_batch = [
+                (item["response_str"], item["original_score"]) for item in group_data
+            ]
+            batched_openai_quality_rewards = self._get_batched_openai_quality_rewards(responses_to_evaluate_for_batch)
+
+            for idx_in_group, item in enumerate(group_data):
+                i = item["original_index"]
+                response_str = item["response_str"]
+                score = item["original_score"]
+                valid_response_length = item["valid_response_length"]
+                length = valid_response_length # For clarity in penalty calculation
+
                 reward = score
-                # Add OpenAI quality reward
-                openai_quality_reward = self._get_openai_quality_reward(response_str, reward)
+                
+                openai_quality_reward = batched_openai_quality_rewards[idx_in_group]
                 reward += openai_quality_reward
                 reward_extra_info["openai_quality_reward"].append(openai_quality_reward)
+                
                 scaled_penalty = 0.0
                 print(f"[PENALTY DEBUG] length_penalty_config {self.length_penalty_config}")
                 # Apply piecewise length-based penalty
                 if self.length_penalty_config and self.length_penalty_config.enable:
                     print(f"[PENALTY DEBUG] Length penalty calculation is ENABLED.")
-                    # This implements a true penalty system using an "inverted trapezoid" function.
-                    # A penalty is calculated based on the response length (L) relative to the median length (M).
-                    #
-                    # Let p = peak_ratio, o = outer_ratio. The penalty formula is:
-                    #
-                    # Penalty =
-                    #   - 0, if M*(1-p) <= L <= M*(1+p) (zero penalty zone)
-                    #   - linear increase from 0 to max_penalty, if M*(1-o) <= L < M*(1-p)
-                    #   - linear increase from 0 to max_penalty, if M*(1+p) < L <= M*(1+o)
-                    #   - max_penalty, if L < M*(1-o) or L > M*(1+o)
-                    #
-                    # The final reward is `reward = score - (Penalty * penalty_scale)`.
                     
-                    # Configuration for the penalty function
                     penalty_scale = getattr(self.length_penalty_config, "penalty_scale", 1.0)
                     max_penalty = getattr(self.length_penalty_config, "max_penalty", 1.0)
                     peak_ratio = getattr(self.length_penalty_config, "peak_ratio", 0.3)
@@ -264,9 +298,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                         raise ValueError("outer_ratio must be greater than peak_ratio in length_penalty_config")
 
                     penalty_component = 0.0
-                    # Only apply penalty if median_length is positive to avoid division by zero.
                     if median_length > 0:
-                        # Define the points of the inverted trapezoid function
                         linear_start = median_length * (1 - outer_ratio)
                         peak_start = median_length * (1 - peak_ratio)
                         peak_end = median_length * (1 + peak_ratio)
@@ -277,19 +309,15 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                         print(f"[PENALTY DEBUG] Linear penalty zone: [{linear_start:.2f}, {peak_start:.2f}) U ({peak_end:.2f}, {linear_end:.2f}]")
 
                         if length < linear_start or length > linear_end:
-                            # Outside the outer bounds: maximum penalty
                             penalty_component = max_penalty
                         elif length >= linear_start and length < peak_start:
-                            # On the ascending slope of the penalty (for short responses)
                             denominator = peak_start - linear_start
                             if denominator > 0:
                                 penalty_component = max_penalty * (peak_start - length) / denominator
                         elif length > peak_end and length <= linear_end:
-                            # On the ascending slope of the penalty (for long responses)
                             denominator = linear_end - peak_end
                             if denominator > 0:
                                 penalty_component = max_penalty * (length - peak_end) / denominator
-                        # Inside the peak_start to peak_end range, penalty_component remains 0.
                         
                         print(f"[PENALTY DEBUG] Calculated penalty_component: {penalty_component:.4f}")
 
