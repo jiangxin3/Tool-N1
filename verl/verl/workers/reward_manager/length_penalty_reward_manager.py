@@ -174,7 +174,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
             model_output = response_json["choices"][0]["message"]["content"]
             
             # Parse the score using regex
-            match = re.search(r'最终评分\s*\n\s*(\d+)', model_output)
+            match = re.search(r'最终评分\s+(\d+)', model_output)
             if match:
                 score = float(match.group(1))
                 return score * self.openai_reward_coefficient

@@ -71,7 +71,7 @@ def openai_worker_process(
                 
                 model_output = response_json["choices"][0]["message"]["content"]
                 
-                match = re.search(r'最终评分\s*\n\s*(\d+)', model_output)
+                match = re.search(r'最终评分\s+(\d+)', model_output)
                 if match:
                     score = float(match.group(1))
                     results_dict[request_hash] = score * reward_coefficient
