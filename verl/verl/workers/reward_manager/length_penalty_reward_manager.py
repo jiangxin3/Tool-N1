@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-20.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,14 +16,14 @@ from collections import defaultdict
 import torch
 import numpy as np
 import logging
-import requests # Added for OpenAI API calls
-import re # Added for regex parsing
-import concurrent.futures # Added for concurrent API calls
-
+import requests
+import re
+import time
 from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
+from .openai_worker import get_request_hash, OpenAIWorkerManager
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,10 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         self.reward_fn_key = reward_fn_key
         self.length_penalty_config = length_penalty_config
 
+        # Initialize OpenAI worker manager for asynchronous API calls
+        num_workers = getattr(self.length_penalty_config, "num_async_workers", 4) if self.length_penalty_config else 4
+        self.openai_worker_manager = OpenAIWorkerManager(self.length_penalty_config, num_workers=num_workers)
+
         # Extract OpenAI configs from length_penalty_config
         self.openai_api_key = getattr(self.length_penalty_config, "api_key", None)
         self.openai_model_name = getattr(self.length_penalty_config, "model_name", "deepseek-v3")
@@ -56,7 +60,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         self.openai_api_endpoint = getattr(self.length_penalty_config, "api_endpoint", "https://qianfan.baidubce.com/v2/chat/completions")
         self.openai_system_prompt = '''
 # 角色
-你将扮演一位资深的“LLM 输出质量审查员”。你的核心专长是分析大型语言模型在执行任务时的内部思考链（`<think>` 标签内的内容）与其最终执行的动作（`<tool_call>` 标签内的内容）之间的逻辑一致性。
+你将扮演一位资深的"LLM 输出质量审查员"。你的核心专长是分析大型语言模型在执行任务时的内部思考链（`<think>` 标签内的内容）与其最终执行的动作（`<tool_call>` 标签内的内容）之间的逻辑一致性。
 
 # 核心任务
 你的唯一任务是接收一段包含 `<think>` 和 `<tool_call>` 的文本，并对其进行严格的逻辑审查。你必须判断模型的思考过程是否合理、清晰、对读者有帮助，以及其最终的工具调用是否是该思考过程的直接、合理且唯一的产物。
@@ -126,6 +130,20 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
 [此处必须且只能输出一个1到10的整数，该分数是你综合以上所有分析后得出的最终结论]
 '''
 
+    def start_workers(self):
+        """启动异步 OpenAI worker 进程"""
+        if self.openai_worker_manager.is_enabled:
+            logger.info("Starting OpenAI worker processes for asynchronous API calls...")
+            self.openai_worker_manager.start()
+            logger.info("OpenAI worker processes started successfully.")
+
+    def shutdown_workers(self):
+        """关闭异步 OpenAI worker 进程"""
+        if self.openai_worker_manager.is_enabled:
+            logger.info("Shutting down OpenAI worker processes...")
+            self.openai_worker_manager.shutdown()
+            logger.info("OpenAI worker processes shut down successfully.")
+
     def _get_single_openai_quality_reward(self, response_str: str, response_format_reward: float) -> float:
         if response_format_reward == 0:
             return 0.0
@@ -156,7 +174,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
             model_output = response_json["choices"][0]["message"]["content"]
             
             # Parse the score using regex
-            match = re.search(r'最终评分\s(\d+)', model_output)
+            match = re.search(r'最终评分\s*\n\s*(\d+)', model_output)
             if match:
                 score = float(match.group(1))
                 return score * self.openai_reward_coefficient
@@ -171,11 +189,109 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
             return 0.0
 
     def _get_batched_openai_quality_rewards(self, responses_to_evaluate: list[tuple[str, float]]) -> list[float]:
+        """
+        使用异步 worker 进程批量获取 OpenAI 质量评估奖励，实现请求与 GPU 计算的解耦。
+        """
         if not self.openai_api_key:
             logger.warning("OpenAI API key not provided. Skipping OpenAI quality evaluation.")
             return [0.0] * len(responses_to_evaluate)
 
-        max_workers = 5 
+        # 如果 OpenAI worker manager 未启用，回退到同步方法
+        if not self.openai_worker_manager.is_enabled:
+            logger.info("OpenAI worker manager not enabled, falling back to synchronous method.")
+            return self._get_batched_openai_quality_rewards_sync(responses_to_evaluate)
+
+        logger.info(f"Using asynchronous OpenAI workers to evaluate {len(responses_to_evaluate)} responses")
+
+        # 获取任务队列和结果字典
+        task_queue = self.openai_worker_manager.get_task_queue()
+        results_dict = self.openai_worker_manager.get_results_dict()
+
+        if task_queue is None or results_dict is None:
+            logger.warning("Task queue or results dict not available, falling back to synchronous method.")
+            return self._get_batched_openai_quality_rewards_sync(responses_to_evaluate)
+
+        # 收集所有需要评估的响应，为每个响应生成哈希和请求
+        request_hashes = []
+        requests_to_submit = []
+
+        for response_str, response_format_reward in responses_to_evaluate:
+            if response_format_reward == 0:
+                # 如果响应格式奖励为0，跳过 OpenAI 评估
+                request_hashes.append(None)
+                requests_to_submit.append(None)
+            else:
+                # 生成请求哈希和请求字符串
+                request_hash = get_request_hash(response_str)
+                request_hashes.append(request_hash)
+                requests_to_submit.append(response_str)
+
+        # 提交任务到队列
+        for request_hash, request_str in zip(request_hashes, requests_to_submit):
+            if request_hash is not None and request_str is not None:
+                # 只有当结果尚不存在时才提交任务
+                if request_hash not in results_dict:
+                    task_queue.put((request_hash, request_str))
+
+        # 等待所有任务完成并收集结果
+        scores = [0.0] * len(responses_to_evaluate)
+        timeout_seconds = 300  # 5分钟超时
+
+        start_time = time.time()
+        completed_count = 0
+        total_to_process = sum(1 for h in request_hashes if h is not None)
+
+        # 逐个等待结果，但使用较短的超时时间以便及时处理
+        for i, (request_hash, _) in enumerate(zip(request_hashes, requests_to_submit)):
+            if request_hash is None:
+                # 原响应格式奖励为0，保持分数为0
+                completed_count += 1
+                continue
+
+            # 等待结果，设置超时和进度日志
+            wait_start = time.time()
+            while request_hash not in results_dict:
+                if time.time() - start_time > timeout_seconds:
+                    logger.warning(f"Timeout waiting for OpenAI API result for request {request_hash}")
+                    break
+                # 每10秒记录一次进度
+                if time.time() - wait_start > 10.0:
+                    completed = sum(1 for j in range(i + 1) if request_hashes[j] is not None and request_hashes[j] in results_dict)
+                    progress = (completed / total_to_process) * 100 if total_to_process > 0 else 0
+                    logger.info(f"Waiting for OpenAI results... {progress:.1f}% complete ({completed}/{total_to_process})")
+                    wait_start = time.time()
+                time.sleep(0.1)  # 短暂等待后重试
+
+            # 获取结果（如果超时，结果可能不存在）
+            if request_hash in results_dict:
+                score = results_dict[request_hash]
+                scores[i] = score
+                completed_count += 1
+                logger.debug(f"Received OpenAI score {score} for request {request_hash}")
+            else:
+                logger.warning(f"Failed to get OpenAI result for request {request_hash}, using 0.0")
+                scores[i] = 0.0
+                completed_count += 1
+
+            # 每完成25%的任务记录一次进度
+            if (i + 1) % max(1, len(responses_to_evaluate) // 4) == 0:
+                progress = (completed_count / len(responses_to_evaluate)) * 100
+                logger.info(f"OpenAI quality evaluation progress: {progress:.1f}% ({completed_count}/{len(responses_to_evaluate)})")
+
+        logger.info(f"Completed asynchronous OpenAI quality evaluation for {len(responses_to_evaluate)} responses")
+        return scores
+
+    def _get_batched_openai_quality_rewards_sync(self, responses_to_evaluate: list[tuple[str, float]]) -> list[float]:
+        """
+        同步版本的 OpenAI 质量评估，作为备选方案。
+        """
+        if not self.openai_api_key:
+            logger.warning("OpenAI API key not provided. Skipping OpenAI quality evaluation.")
+            return [0.0] * len(responses_to_evaluate)
+
+        import concurrent.futures
+
+        max_workers = 5
         scores = [0.0] * len(responses_to_evaluate)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -196,6 +312,16 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         return scores
 
     def __call__(self, data: DataProto, return_dict: bool = False):
+        """
+        计算奖励分数，实现 GPU 计算与 OpenAI API 请求的解耦。
+        在处理每个 batch 时，异步提交 OpenAI 评估请求，让 GPU 继续处理其他计算。
+        """
+        # 启动异步 OpenAI workers（如果尚未启动）
+        if self.openai_worker_manager.is_enabled:
+            if not hasattr(self, '_workers_started') or not self._workers_started:
+                self.start_workers()
+                self._workers_started = True
+
         if "rm_scores" in data.batch.keys():
             if return_dict:
                 reward_extra_keys = data.meta_info.get("reward_extra_keys", [])
@@ -238,7 +364,7 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                 eos_token = self.tokenizer.eos_token
                 if response_str.endswith(eos_token):
                     response_str = response_str[: -len(eos_token)]
-                
+
                 ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
                 data_source = data_item.non_tensor_batch[self.reward_fn_key]
                 extra_info = data_item.non_tensor_batch.get("extra_info", {})
@@ -333,9 +459,10 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
                 reward_extra_info["median_length"].append(median_length)
 
         if return_dict:
-            return {
+            result = {
                 "reward_tensor": reward_tensor,
                 "reward_extra_info": reward_extra_info,
             }
         else:
-            return reward_tensor
+            result = reward_tensor
+        return result
