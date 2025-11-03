@@ -23,7 +23,10 @@ from verl import DataProto
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register
 from verl.workers.reward_manager.abstract import AbstractRewardManager
-from .openai_worker import get_request_hash, OpenAIWorkerManager
+from .async_openai_worker import AsyncOpenAIManager, get_request_hash
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -49,26 +52,52 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
         self.reward_fn_key = reward_fn_key
         self.length_penalty_config = length_penalty_config
 
-        # Initialize OpenAI worker manager for asynchronous API calls
-        num_workers = getattr(self.length_penalty_config, "num_async_workers", 4) if self.length_penalty_config else 4
-        self.openai_worker_manager = OpenAIWorkerManager(self.length_penalty_config, num_workers=num_workers)
-
-        # Extract OpenAI configs from length_penalty_config
+        # Extract OpenAI configs from length_penalty_config (MUST be first)
         self.openai_api_key = getattr(self.length_penalty_config, "api_key", None)
         self.openai_model_name = getattr(self.length_penalty_config, "model_name", "deepseek-v3")
         self.openai_reward_coefficient = getattr(self.length_penalty_config, "reward_coefficient", 1.0)
         self.openai_api_endpoint = getattr(self.length_penalty_config, "api_endpoint", "https://qianfan.baidubce.com/v2/chat/completions")
+
+        # Initialize OpenAI manager - SIMPLIFIED VERSION (only async)
+        self.use_async_io = getattr(self.length_penalty_config, "use_async_io", False)
+
+        self.async_openai_manager = None
+        if self.use_async_io and self.openai_api_key:
+            self.async_openai_manager = AsyncOpenAIManager(
+                api_key=self.openai_api_key,
+                model_name=self.openai_model_name,
+                api_endpoint=self.openai_api_endpoint,
+                system_prompt=self.openai_system_prompt,
+                reward_coefficient=self.openai_reward_coefficient,
+                max_concurrent=getattr(self.length_penalty_config, "max_concurrent_requests", 10)
+            )
+            logger.info("✅ Initialized async OpenAI manager for TRUE ASYNC I/O (zero GPU wait)")
+        elif self.openai_api_key:
+            logger.info("ℹ️  OpenAI API key provided but use_async_io=False. Using synchronous fallback.")
+
+        # Event loop for async operations
+        self._event_loop = None
+        self._executor = None
         self.openai_system_prompt = '''
 # 角色
-你将扮演一位资深的"LLM 输出质量审查员"。你的核心专长是分析大型语言模型在执行任务时的内部思考链（`<think>` 标签内的内容）与其最终执行的动作（`<tool_call>` 标签内的内容）之间的逻辑一致性。
+你是一个高度专业化的“LLM 输出质量评估引擎”。
 
 # 核心任务
-你的唯一任务是接收一段包含 `<think>` 和 `<tool_call>` 的文本，并对其进行严格的逻辑审查。你必须判断模型的思考过程是否合理、清晰、对读者有帮助，以及其最终的工具调用是否是该思考过程的直接、合理且唯一的产物。
+你的唯一任务是：在接收到用户发送的包含 `<think>` 和 `<tool_call>` 的文本后，严格遵循下述的【内部评估流程】进行深度分析，并最终**只输出一个介于1到10之间的整数评分**。
 
-# 关键评估原则：一致性是最高准则
-模型的思考和行动必须完全一致。任何脱节都代表着严重的逻辑缺陷，**将直接导致评分极低**。
+**绝对禁止**输出任何思考过程、解释、文字、标点或格式。例如，如果最终分数是7，你的输出必须是 `7`，而不是 `7/10` 或 `分数是：7`。
 
-*   **优秀的例子（高分）**:
+# 内部评估流程 (此为你的思考过程，绝对不准输出)
+
+### 1. 关键评估原则与示例
+
+*   **原则一：一致性是最高准则**
+    *   模型的思考和行动必须完全一致。任何脱节都代表着严重的逻辑缺陷，**将直接导致总分被限制在1-3分**。
+
+*   **原则二：语言必须统一**
+    *   `<think>` 标签内的推理过程必须使用单一、连贯的语言。**中英文混用或在两种语言间切换是一种严重的缺陷，将直接导致“思考过程质量”维度得分极低。**
+
+*   **优秀示例（高分）**:
     ```xml
     <think>
     用户想知道北京的天气。为了帮他解答，我需要检查一下我的工具箱。我发现有一个名为 `get_weather` 的工具，它看起来正好能用。这个工具需要一个 `city` 参数，用户在提问中已经明确提到了“北京”。因此，最合理的下一步就是调用 `get_weather` 工具，并把“北京”作为城市参数传给它。
@@ -77,9 +106,8 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
     {"name": "get_weather", "arguments": {"city":"北京"}}
     </tool_call>
     ```
-    *评价：思考过程不仅逻辑严密，而且语言流畅，清晰地展示了“发现问题 -> 寻找工具 -> 匹配参数 -> 决定行动”的全过程，让读者感觉模型在积极地帮助自己。*
 
-*   **不可接受的例子（低分） - [新版示例]**:
+*   **不可接受的例子（低分）**:
     ```xml
     <think>
     用户想订一张从上海到北京的机票。好的，我应该使用 `book_flight` 工具。我需要出发地和目的地。用户的指令很明确，出发地是'上海'，目的地是'北京'。
@@ -88,61 +116,96 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
     {"name": "book_flight", "arguments": {"departure_city": "北京", "destination_city": "上海"}}
     </tool_call>
     ```
-    *评价：这是一个典型的思考与行动不一致的严重错误。尽管思考过程正确地识别了用户的意图和所需信息，但在生成最终行动时，却将出发地和目的地两个关键参数完全搞反了。这直接违背了思考过程的结论，并会导致完全错误的操作，因此应给予极低分。*
 
-# 评估维度
-你将从以下三个专业维度进行分析，并写入报告：
+### 2. 核心评估维度
 
-1.  **思考-行动一致性 (Reasoning-Action Consistency)**:
-    *   **核心问题**: `<tool_call>` 中的函数名和参数是否是 `<think>` 过程的直接、合乎逻辑的结论？
-    *   **评估要点**: 检查是否存在函数名不匹配、参数不一致、或者思考结论与实际行动相悖的情况。**这是最重要的评分项，一旦出现问题，总分将被限制在1-3分。**
+你需要在内心从以下三个维度进行打分，并最终加权得出总分。
 
-2.  **思考过程的质量与清晰度 (Reasoning Quality & Clarity)**:
-    *   **核心问题**: `<think>` 块内的逻辑是否清晰、合理、高效，并且对人类读者友好且有帮助？
-    *   **评估要点**: 
-        *   **逻辑性**: 是否正确理解用户意图？推理步骤是否连贯、无遗漏？
-        *   **可读性与流畅度**: 思考过程的文字描述是否清晰、易于人类理解？**是否像一个连贯的内心独白，而不是零散的指令集？**
-        *   **辅助性与透明度**: **思考过程是否能让审查者清晰地看到‘为什么’模型会做出最终决策？是否体现了积极解决问题的态度，让读者觉得这个过程本身就很有帮助？**
+*   **A. 思考-行动一致性 (权重: 50%)**:
+    *   检查 `<tool_call>` 的函数名和参数是否是 `<think>` 过程的直接、合乎逻辑的结论。
+    *   **内心评分**: 1-10分。
 
-3.  **工具调用有效性 (Tool Call Validity)**:
-    *   **核心问题**: `<tool_call>` 本身的格式是否正确，参数是否合理？
-    *   **评估要点**: 函数名和参数的格式是否符合规范？即使思考过程有误，调用的参数值本身是否符合常识？
+*   **B. 思考过程的质量与清晰度 (权重: 30%)**:
+    *   **逻辑性**: 是否正确理解用户意图？推理步骤是否连贯？
+    *   **可读性与辅助性**: 思考过程的文字是否清晰、流畅、易于人类理解，并能体现出帮助解决问题的态度？
+    *   **语言一致性**: **是否全程使用单一语言？出现中英混用或切换则此项得分极低。**
+    *   **内心评分**: 1-10分。
 
-# 输出格式 (必须严格遵守)
-你的输出必须包含详细的分析报告和最终的单一数字评分。
+*   **C. 工具调用有效性 (权重: 20%)**:
+    *   检查 `<tool_call>` 本身的格式是否正确，参数值是否符合常识。
+    *   **内心评分**: 1-10分。
 
-## LLM 行为逻辑审查报告
+### 3. 计算最终分数
 
-### 维度分析
-*   **思考-行动一致性**: [对此项进行详细的文字评价，明确指出思考和行动是否一致，并解释原因。]
-*   **思考过程的质量与清晰度**: [对此项进行详细的文字评价，综合分析其逻辑性、可读性和辅助性。]
-*   **工具调用有效性**: [对此项进行详细的文字评价，分析工具调用本身的格式和内容。]
+*   在内心计算加权总分：`总分 = (A * 0.5) + (B * 0.3) + (C * 0.2)`。
+*   将计算出的总分进行四舍五入，得到最终的整数。
 
-### 核心问题诊断
-*   [用一句话精准概括本次输出最严重的问题。]
+# 输出规则 (必须无条件遵守)
+-   你的最终响应**必须且只能是**一个阿拉伯数字（1, 2, 3, 4, 5, 6, 7, 8, 9, 10）。
+-   **不包含**任何前缀或后缀。
+-   **不包含**任何文字解释。
+-   **不包含**任何多余的空格或换行。
 
-### 改进建议
-*   [针对核心问题，提出具体的改进方向。]
-
----
-
-## 最终评分
-[此处必须且只能输出一个1到10的整数，该分数是你综合以上所有分析后得出的最终结论]
+# 工作流程
+1.  在我发送此条指令后，**不要回复任何确认信息**，直接进入待命状态。
+2.  当我发送需要评估的文本后，你将立即执行【内部评估流程】。
+3.  完成评估和计算后，立即输出那个最终的整数。
 '''
 
     def start_workers(self):
-        """启动异步 OpenAI worker 进程"""
-        if self.openai_worker_manager.is_enabled:
-            logger.info("Starting OpenAI worker processes for asynchronous API calls...")
-            self.openai_worker_manager.start()
-            logger.info("OpenAI worker processes started successfully.")
+        """启动异步 OpenAI manager"""
+        if self.async_openai_manager:
+            logger.info("Async OpenAI manager is initialized and ready (no separate start needed)")
+        else:
+            logger.info("No async OpenAI manager to start (use_async_io=True to enable)")
 
     def shutdown_workers(self):
-        """关闭异步 OpenAI worker 进程"""
-        if self.openai_worker_manager.is_enabled:
-            logger.info("Shutting down OpenAI worker processes...")
-            self.openai_worker_manager.shutdown()
-            logger.info("OpenAI worker processes shut down successfully.")
+        """关闭异步 OpenAI 管理器"""
+        # 关闭异步 OpenAI manager
+        if self.async_openai_manager:
+            logger.info("Shutting down async OpenAI manager...")
+            if self._event_loop and self._event_loop.is_running():
+                # 在事件循环中关闭异步管理器
+                future = asyncio.run_coroutine_threadsafe(
+                    self.async_openai_manager.shutdown(),
+                    self._event_loop
+                )
+                try:
+                    future.result(timeout=5.0)
+                except Exception as e:
+                    logger.error(f"Error shutting down async manager: {e}")
+
+            # 关闭事件循环和线程池
+            if self._executor:
+                self._executor.shutdown(wait=True)
+                self._executor = None
+            if self._event_loop and not self._event_loop.is_closed():
+                self._event_loop.close()
+                self._event_loop = None
+
+            logger.info("Async OpenAI manager shut down successfully.")
+        else:
+            logger.info("No OpenAI manager to shut down (not initialized)")
+
+    def _ensure_event_loop(self):
+        """确保事件循环正在运行"""
+        if self._event_loop is None or self._event_loop.is_closed():
+            logger.info("Starting new event loop for async operations...")
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="async-openai")
+            self._event_loop = asyncio.new_event_loop()
+
+            # 在单独线程中启动事件循环
+            def run_event_loop(loop):
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            self._event_loop_thread = threading.Thread(
+                target=run_event_loop,
+                args=(self._event_loop,),
+                daemon=True
+            )
+            self._event_loop_thread.start()
+            logger.info("Event loop started in background thread")
 
     def _get_single_openai_quality_reward(self, response_str: str, response_format_reward: float) -> float:
         if response_format_reward == 0:
@@ -188,99 +251,6 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
             logger.error(f"Error parsing OpenAI API response: {e}\nResponse: {response_json}")
             return 0.0
 
-    def _get_batched_openai_quality_rewards(self, responses_to_evaluate: list[tuple[str, float]]) -> list[float]:
-        """
-        使用异步 worker 进程批量获取 OpenAI 质量评估奖励，实现请求与 GPU 计算的解耦。
-        """
-        if not self.openai_api_key:
-            logger.warning("OpenAI API key not provided. Skipping OpenAI quality evaluation.")
-            return [0.0] * len(responses_to_evaluate)
-
-        # 如果 OpenAI worker manager 未启用，回退到同步方法
-        if not self.openai_worker_manager.is_enabled:
-            logger.info("OpenAI worker manager not enabled, falling back to synchronous method.")
-            return self._get_batched_openai_quality_rewards_sync(responses_to_evaluate)
-
-        logger.info(f"Using asynchronous OpenAI workers to evaluate {len(responses_to_evaluate)} responses")
-
-        # 获取任务队列和结果字典
-        task_queue = self.openai_worker_manager.get_task_queue()
-        results_dict = self.openai_worker_manager.get_results_dict()
-
-        if task_queue is None or results_dict is None:
-            logger.warning("Task queue or results dict not available, falling back to synchronous method.")
-            return self._get_batched_openai_quality_rewards_sync(responses_to_evaluate)
-
-        # 收集所有需要评估的响应，为每个响应生成哈希和请求
-        request_hashes = []
-        requests_to_submit = []
-
-        for response_str, response_format_reward in responses_to_evaluate:
-            if response_format_reward == 0:
-                # 如果响应格式奖励为0，跳过 OpenAI 评估
-                request_hashes.append(None)
-                requests_to_submit.append(None)
-            else:
-                # 生成请求哈希和请求字符串
-                request_hash = get_request_hash(response_str)
-                request_hashes.append(request_hash)
-                requests_to_submit.append(response_str)
-
-        # 提交任务到队列
-        for request_hash, request_str in zip(request_hashes, requests_to_submit):
-            if request_hash is not None and request_str is not None:
-                # 只有当结果尚不存在时才提交任务
-                if request_hash not in results_dict:
-                    task_queue.put((request_hash, request_str))
-
-        # 等待所有任务完成并收集结果
-        scores = [0.0] * len(responses_to_evaluate)
-        timeout_seconds = 300  # 5分钟超时
-
-        start_time = time.time()
-        completed_count = 0
-        total_to_process = sum(1 for h in request_hashes if h is not None)
-
-        # 逐个等待结果，但使用较短的超时时间以便及时处理
-        for i, (request_hash, _) in enumerate(zip(request_hashes, requests_to_submit)):
-            if request_hash is None:
-                # 原响应格式奖励为0，保持分数为0
-                completed_count += 1
-                continue
-
-            # 等待结果，设置超时和进度日志
-            wait_start = time.time()
-            while request_hash not in results_dict:
-                if time.time() - start_time > timeout_seconds:
-                    logger.warning(f"Timeout waiting for OpenAI API result for request {request_hash}")
-                    break
-                # 每10秒记录一次进度
-                if time.time() - wait_start > 10.0:
-                    completed = sum(1 for j in range(i + 1) if request_hashes[j] is not None and request_hashes[j] in results_dict)
-                    progress = (completed / total_to_process) * 100 if total_to_process > 0 else 0
-                    logger.info(f"Waiting for OpenAI results... {progress:.1f}% complete ({completed}/{total_to_process})")
-                    wait_start = time.time()
-                time.sleep(0.1)  # 短暂等待后重试
-
-            # 获取结果（如果超时，结果可能不存在）
-            if request_hash in results_dict:
-                score = results_dict[request_hash]
-                scores[i] = score
-                completed_count += 1
-                logger.debug(f"Received OpenAI score {score} for request {request_hash}")
-            else:
-                logger.warning(f"Failed to get OpenAI result for request {request_hash}, using 0.0")
-                scores[i] = 0.0
-                completed_count += 1
-
-            # 每完成25%的任务记录一次进度
-            if (i + 1) % max(1, len(responses_to_evaluate) // 4) == 0:
-                progress = (completed_count / len(responses_to_evaluate)) * 100
-                logger.info(f"OpenAI quality evaluation progress: {progress:.1f}% ({completed_count}/{len(responses_to_evaluate)})")
-
-        logger.info(f"Completed asynchronous OpenAI quality evaluation for {len(responses_to_evaluate)} responses")
-        return scores
-
     def _get_batched_openai_quality_rewards_sync(self, responses_to_evaluate: list[tuple[str, float]]) -> list[float]:
         """
         同步版本的 OpenAI 质量评估，作为备选方案。
@@ -311,13 +281,108 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
 
         return scores
 
+    def _get_batched_openai_quality_rewards_async(self, responses_to_evaluate: list[tuple[str, float]]) -> list[float]:
+        """
+        真正的异步并行 OpenAI 质量评估 - 零 GPU 等待时间
+
+        这个方法的核心优势：
+        1. 立即返回 Future 对象，不阻塞主线程
+        2. GPU 可以继续进行其他计算
+        3. API 请求在后台异步并发执行
+        4. 只在必要时检查结果，最大化 GPU 利用率
+        """
+        if not self.async_openai_manager:
+            logger.warning("Async OpenAI manager not available")
+            return [0.0] * len(responses_to_evaluate)
+
+        if not self.openai_api_key:
+            logger.warning("OpenAI API key not provided. Skipping OpenAI quality evaluation.")
+            return [0.0] * len(responses_to_evaluate)
+
+        # 确保事件循环正在运行
+        self._ensure_event_loop()
+
+        # 提交所有异步任务
+        async def submit_and_evaluate():
+            results = await self.async_openai_manager.submit_and_get_batch_results(
+                responses_to_evaluate,
+                check_interval=0.001  # 最小检查间隔
+            )
+            return results
+
+        # 在后台线程中执行异步操作
+        future = asyncio.run_coroutine_threadsafe(submit_and_evaluate(), self._event_loop)
+
+        # 等待结果，但主线程可以做其他事情
+        try:
+            # 设置超时但可以调整
+            timeout = 300  # 5分钟超时
+            results = future.result(timeout=timeout)
+            logger.info(f"Completed async OpenAI evaluation for {len(responses_to_evaluate)} responses")
+            return results
+        except asyncio.TimeoutError:
+            logger.error(f"Async OpenAI evaluation timed out after {timeout} seconds")
+            return [0.0] * len(responses_to_evaluate)
+        except Exception as e:
+            logger.error(f"Async OpenAI evaluation failed: {e}")
+            return [0.0] * len(responses_to_evaluate)
+
+    def _get_batched_openai_quality_rewards_non_blocking(
+        self,
+        responses_to_evaluate: list[tuple[str, float]]
+    ) -> tuple[list[float], asyncio.Future]:
+        """
+        非阻塞版本的异步评估 - 返回 Future 和初始结果
+
+        这个方法是关键优化：
+        1. 立即返回初始结果（0.0）
+        2. 返回 Future 对象供后续检查
+        3. 主线程可以立即继续 GPU 计算
+        4. 在计算间隙异步检查 API 结果
+
+        Returns:
+            (initial_results, future) - 初始结果和异步Future
+        """
+        if not self.async_openai_manager or not self.openai_api_key:
+            # 如果没有异步管理器，返回零结果和空的Future
+            initial_results = [0.0] * len(responses_to_evaluate)
+            dummy_future = asyncio.Future()
+            dummy_future.set_result(initial_results)
+            return initial_results, dummy_future
+
+        # 确保事件循环正在运行
+        self._ensure_event_loop()
+
+        # 创建异步任务
+        async def evaluate_async():
+            try:
+                results = await self.async_openai_manager.submit_and_get_batch_results(
+                    responses_to_evaluate,
+                    check_interval=0.001
+                )
+                return results
+            except Exception as e:
+                logger.error(f"Async evaluation failed: {e}")
+                return [0.0] * len(responses_to_evaluate)
+
+        # 提交异步任务
+        future = asyncio.run_coroutine_threadsafe(evaluate_async(), self._event_loop)
+
+        # 立即返回初始结果，主线程可以继续
+        initial_results = [
+            0.0 if format_reward > 0 else 0.0
+            for _, format_reward in responses_to_evaluate
+        ]
+
+        return initial_results, future
+
     def __call__(self, data: DataProto, return_dict: bool = False):
         """
         计算奖励分数，实现 GPU 计算与 OpenAI API 请求的解耦。
         在处理每个 batch 时，异步提交 OpenAI 评估请求，让 GPU 继续处理其他计算。
         """
-        # 启动异步 OpenAI workers（如果尚未启动）
-        if self.openai_worker_manager.is_enabled:
+        # 确保异步管理器已初始化（如果启用）
+        if self.async_openai_manager:
             if not hasattr(self, '_workers_started') or not self._workers_started:
                 self.start_workers()
                 self._workers_started = True
@@ -389,11 +454,24 @@ class LengthPenaltyRewardManager(AbstractRewardManager):
 
             print(f"[PENALTY DEBUG] Processing group with indices {indices}, median response length: {median_length}")
             
-            # Prepare for batched OpenAI calls
+            # Prepare for batched OpenAI calls - SIMPLIFIED VERSION
             responses_to_evaluate_for_batch = [
                 (item["response_str"], item["original_score"]) for item in group_data
             ]
-            batched_openai_quality_rewards = self._get_batched_openai_quality_rewards(responses_to_evaluate_for_batch)
+
+            # 选择 OpenAI 评估方法 - SIMPLIFIED
+            if self.async_openai_manager:
+                # ✅ 使用真正的异步 I/O，零 GPU 等待时间
+                logger.info(f"🚀 Using TRUE ASYNC I/O for batch with {len(responses_to_evaluate_for_batch)} responses (zero GPU wait)")
+                batched_openai_quality_rewards = self._get_batched_openai_quality_rewards_async(
+                    responses_to_evaluate_for_batch
+                )
+            else:
+                # ⚠️ 回退到同步方法（无 OpenAI 评估或禁用异步）
+                logger.info(f"⚡ Using synchronous method for batch with {len(responses_to_evaluate_for_batch)} responses (set use_async_io=True for async)")
+                batched_openai_quality_rewards = self._get_batched_openai_quality_rewards_sync(
+                    responses_to_evaluate_for_batch
+                )
 
             for idx_in_group, item in enumerate(group_data):
                 i = item["original_index"]
