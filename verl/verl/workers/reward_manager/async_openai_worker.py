@@ -84,15 +84,31 @@ class AsyncOpenAIWorker:
 
                 model_output = response_json["choices"][0]["message"]["content"]
 
-                # 使用正则表达式提取评分
-                match = re.search(r'\d+\.?\d*', model_output)
+                # 使用正则表达式提取评分 - 支持多种格式
+                score = None
+
+                # 尝试格式1: "最终评分 X"
+                match = re.search(r'最终评分\s*[:：]?\s*(\d+)', model_output)
                 if match:
                     score = float(match.group(1))
+                else:
+                    # 尝试格式2: 单独的数字（在1-10范围内）
+                    match = re.search(r'\b([1-9]|10)\b', model_output)
+                    if match:
+                        score = float(match.group(1))
+                    else:
+                        # 尝试格式3: "评分: X" 或 "分数: X"
+                        match = re.search(r'评分\s*[:：]?\s*(\d+)', model_output)
+                        if match:
+                            score = float(match.group(1))
+
+                if score is not None:
                     result = score * self.reward_coefficient
                     self._request_cache[request_hash] = result
                     return result
                 else:
-                    logger.warning(f"Could not parse OpenAI score from: {model_output}")
+                    # 记录原始响应内容以便调试
+                    logger.warning(f"Could not parse OpenAI score from response: {model_output[:200]}...")
                     result = 0.0
                     self._request_cache[request_hash] = result
                     return result
